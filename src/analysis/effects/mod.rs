@@ -244,7 +244,7 @@ impl ReturnOrigins {
                 .any(|alias| alias.parameter == parameter)
         }
     }
-    fn join(&mut self, other: &Self) {
+    pub(crate) fn join(&mut self, other: &Self) {
         if other.unknown && !self.unknown {
             let mut joined = other.clone();
             joined.join(self);
@@ -260,7 +260,7 @@ impl ReturnOrigins {
         self.aliases.extend(other.aliases.iter().cloned());
         *self = std::mem::take(self).bounded();
     }
-    fn project(&self, projection: Projection) -> Self {
+    pub(crate) fn project(&self, projection: Projection) -> Self {
         if self.unknown {
             return self.clone();
         }
@@ -517,7 +517,7 @@ impl Summary {
         }
         Ok(())
     }
-    fn affect(&mut self, value: &ReturnOrigins, effect: &ParameterEffects) {
+    pub(crate) fn affect(&mut self, value: &ReturnOrigins, effect: &ParameterEffects) {
         if value.unknown {
             let uncertain = |effect| {
                 if effect == Effect::No {

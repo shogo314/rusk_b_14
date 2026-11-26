@@ -26,6 +26,10 @@ enum Destination<P> {
         path: Vec<P>,
     },
     Temporary(String),
+    Feedback {
+        name: String,
+        returns: bool,
+    },
     Cache {
         name: String,
         parameter: usize,
@@ -51,8 +55,10 @@ fn temporary(text: &str) -> Option<&str> {
 
 impl Specification {
     /// `via (0.source,1) into return.cached`, `into 0.cached`, or `into discard`.
-    /// A result routed `into $name` can be passed to a later read-only call.
+    /// A result routed `into $name` can be passed to a later call.
     /// `into $name to 0.cached` also allows the receiver to save that result.
+    /// `into $name again` feeds a new result back to a previously bound local.
+    /// `into $name again and return` also returns that local after the loop.
     pub(crate) fn parse(text: &str) -> Result<Self, String> {
         let (arguments, result) = text
             .split_once(" into ")
@@ -94,6 +100,16 @@ impl Specification {
                 name: name.into(),
                 parameter,
                 path,
+            }
+        } else if let Some(name) = result
+            .strip_suffix(" again")
+            .or_else(|| result.strip_suffix(" again and return"))
+        {
+            Destination::Feedback {
+                name: temporary(name)
+                    .ok_or("native loop feedback requires a temporary")?
+                    .into(),
+                returns: result.ends_with(" and return"),
             }
         } else if let Some(name) = temporary(result) {
             Destination::Temporary(name.into())
@@ -169,6 +185,15 @@ impl Specification {
             Destination::Discard => Destination::Discard,
             Destination::Temporary(name) => Destination::Temporary(name.clone()),
             Destination::Return(path) => Destination::Return(project(outer_result, path)?),
+            Destination::Feedback { name, returns } => {
+                if *returns && outer_result != result {
+                    return Err("native call mapping result type mismatch".into());
+                }
+                Destination::Feedback {
+                    name: name.clone(),
+                    returns: *returns && result != "Unit",
+                }
+            }
             Destination::Cache {
                 name,
                 parameter,
@@ -189,7 +214,9 @@ impl Specification {
             argument_types: parameters.to_vec(),
             quiet_result: !matches!(
                 result_path,
-                Destination::Temporary(_) | Destination::Cache { .. }
+                Destination::Temporary(_)
+                    | Destination::Feedback { .. }
+                    | Destination::Cache { .. }
             ) || super::quiet_release(result, types),
             result: result_path,
             result_type: result.to_owned(),
@@ -229,7 +256,29 @@ pub(crate) fn compose(
     dependencies: &[Dependency],
     summaries: &[Summary],
 ) -> Option<Summary> {
+    let mut feedback = BTreeMap::new();
+    // Native code describes a loop by assigning a call result back to a routed
+    // local. Close the may-set before publishing any effects of the loop.
+    for _ in 0..=64 {
+        let (summary, next) = compose_pass(base, dependencies, summaries, &feedback)?;
+        if next == feedback {
+            return Some(summary);
+        }
+        feedback = next;
+    }
+    None
+}
+
+type Feedback<'a> = BTreeMap<&'a str, ReturnOrigins>;
+
+fn compose_pass<'a>(
+    base: &Summary,
+    dependencies: &'a [Dependency],
+    summaries: &[Summary],
+    feedback: &Feedback<'a>,
+) -> Option<(Summary, Feedback<'a>)> {
     let mut result = base.clone();
+    let mut next_feedback = BTreeMap::new();
     let mut temporaries = BTreeMap::<&str, (&str, ReturnOrigins)>::new();
     for dependency in dependencies {
         let child = &summaries[dependency.function];
@@ -256,11 +305,7 @@ pub(crate) fn compose(
         if base.cursor_step
             && (child.external_write != Effect::No
                 || matches!(dependency.result, Destination::Store { .. })
-                || child.parameters.iter().any(|p| {
-                    p.retained != Effect::No
-                        || (!child.cursor_step
-                            && (p.write != Effect::No || p.structural != Effect::No))
-                }))
+                || child.parameters.iter().any(|p| p.retained != Effect::No))
         {
             return None;
         }
@@ -275,23 +320,40 @@ pub(crate) fn compose(
                 Argument::Parameter(parameter, path) => (parameter, path),
                 Argument::Temporary(name) => {
                     let (ty, origin) = temporaries.get(name.as_str())?;
+                    // An ordinary callback may change a private accumulator.
+                    // Only a cursor step can write through a routed input
+                    // alias and leave the remaining input routes stable.
                     if Some(underlying(ty))
                         != dependency
                             .argument_types
                             .get(index)
                             .map(|ty| underlying(ty))
                         || !base.cursor_step
-                        || effect.write != Effect::No
-                        || effect.structural != Effect::No
                         || effect.retained != Effect::No
                         || origin.unknown
+                        || (!child.cursor_step
+                            && (effect.write != Effect::No || effect.structural != Effect::No)
+                            && !origin.aliases.is_empty())
                     {
                         return None;
                     }
+                    result.affect(
+                        origin,
+                        &ParameterEffects {
+                            escape: Effect::No,
+                            ..effect.clone()
+                        },
+                    );
                     inputs.push(origin.clone());
                     continue;
                 }
             };
+            if base.cursor_step
+                && !child.cursor_step
+                && (effect.write != Effect::No || effect.structural != Effect::No)
+            {
+                return None;
+            }
             inputs.push(ReturnOrigins {
                 aliases: [ReturnAlias {
                     result_path: vec![],
@@ -345,16 +407,41 @@ pub(crate) fn compose(
             if !base.cursor_step {
                 return None;
             }
-            let Argument::Parameter(parameter, prefix) = &dependency.arguments[cache.parameter]
-            else {
+            let input = &inputs[cache.parameter];
+            let mut source = input.clone();
+            for projection in &cache.source_path {
+                source = source.project(projection.clone());
+            }
+            if source.unknown {
                 return None;
-            };
-            let project = |path: &[Projection]| prefix.iter().chain(path).cloned().collect();
-            result.cursor_aliases.insert(CursorAlias {
-                parameter: *parameter,
-                target_path: project(&cache.target_path),
-                source_path: project(&cache.source_path),
-            });
+            }
+            for owner in &input.aliases {
+                let Some(tail) = cache
+                    .target_path
+                    .strip_prefix(owner.result_path.as_slice())
+                    .filter(|tail| !tail.is_empty())
+                else {
+                    // Replacing a reference inside a private object does not
+                    // change the referenced object that used to be there.
+                    continue;
+                };
+                for alias in &source.aliases {
+                    if alias.parameter != owner.parameter {
+                        return None;
+                    }
+                    result.cursor_aliases.insert(CursorAlias {
+                        parameter: owner.parameter,
+                        target_path: owner
+                            .parameter_path
+                            .iter()
+                            .chain(tail)
+                            .chain(&alias.result_path)
+                            .cloned()
+                            .collect(),
+                        source_path: alias.parameter_path.clone(),
+                    });
+                }
+            }
         }
         if let Destination::Temporary(name) | Destination::Cache { name, .. } = &dependency.result {
             if !base.cursor_step
@@ -386,7 +473,36 @@ pub(crate) fn compose(
                     });
                 }
             }
+            let mut origin = origin;
+            if let Some(prior) = feedback.get(name.as_str()) {
+                origin.join(prior);
+                if origin.unknown {
+                    return None;
+                }
+            }
             temporaries.insert(name.as_str(), (&dependency.result_type, origin));
+        }
+        if let Destination::Feedback { name, returns } = &dependency.result {
+            let (ty, current) = temporaries.get_mut(name.as_str())?;
+            if !base.cursor_step || child.returned.unknown || *ty != dependency.result_type {
+                return None;
+            }
+            let produced = child.returned.substitute(&inputs, Default::default());
+            if produced.unknown || (produced.fresh && !dependency.quiet_result) {
+                return None;
+            }
+            current.join(&produced);
+            if current.unknown {
+                return None;
+            }
+            next_feedback.insert(name.as_str(), current.clone());
+            if *returns {
+                result.returned = current.clone();
+                for alias in &result.returned.aliases {
+                    let effect = &mut result.parameters[alias.parameter];
+                    effect.escape = effect.escape.max(Effect::May);
+                }
+            }
         }
         if let Destination::Return(target) = &dependency.result {
             let returned = child.returned.substitute(&inputs, Default::default());
@@ -532,7 +648,7 @@ pub(crate) fn compose(
             ..Default::default()
         };
     }
-    Some(result)
+    Some((result, next_feedback))
 }
 
 #[cfg(test)]

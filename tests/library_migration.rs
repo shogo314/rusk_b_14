@@ -12,6 +12,19 @@ fn renamed_algorithm_declarations() -> String {
     .into_iter()
     .map(library::source)
     .collect::<String>()
+    .replace("    effects: \"checked_cursor_consume\",\n", "")
+    .replace(" via (0) into $cursor", "")
+    .replace(" via ($cursor) into discard", "")
+    .replace(" via ($cursor) into $element", "")
+    .replace(" via ($cursor) into return.element", "")
+    .replace(" via (1,$element) into discard", "")
+    .replace(" via (1) into $accumulator", "")
+    .replace(
+        " via (2,$accumulator,$element) into $accumulator again and return",
+        "",
+    )
+    .replace(" via (2,$accumulator,$element) into $accumulator again", "")
+    .replace(" via ($accumulator) into return.element", "")
     .replace("fn first_true<", "fn boundary_search<")
     .replace("fn all<", "fn every_item<")
     .replace("fn any<", "fn some_item<")
@@ -491,6 +504,26 @@ fn predicates_keep_structural_mutation_guards_even_when_they_short_circuit() {
             assert_eq!(out.stdout, b"before\n");
             assert!(
                 error.contains("changed") && error.contains("main.rusk:"),
+                "{error}"
+            );
+        }
+    }
+}
+
+#[test]
+fn reductions_keep_structural_mutation_guards_after_the_callback() {
+    for operation in ["fold", "scan"] {
+        let source = format!(
+            r#"let source:=[1,2];wt "before";{operation}(source,0,(sum:Int,x:Int)=>{{source.push_back(3);sum+x}});"#
+        );
+        for options in [vec![], vec!["--no-opt"]] {
+            let out = Case::new(&source).run_with_options("", &options);
+            let error = String::from_utf8_lossy(&out.stderr);
+            assert!(!out.status.success());
+            assert_eq!(out.stdout, b"before\n");
+            assert!(
+                error.contains("container changed during iteration")
+                    && error.contains("main.rusk:"),
                 "{error}"
             );
         }

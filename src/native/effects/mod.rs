@@ -117,6 +117,11 @@ pub(crate) fn contract(
     match specification {
         "read_fresh" => {}
         "checked_read_fresh" => summary.may_fail = Effect::May,
+        "checked_cursor_consume" => {
+            summary.cursor_step = true;
+            summary.may_fail = Effect::May;
+            summary.may_diverge = Effect::May;
+        }
         "write_first"
         | "checked_write_first"
         | "checked_resize_first"
