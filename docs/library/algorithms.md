@@ -32,6 +32,22 @@ wt a.all((x: Int) => x > 0), a.any((x: Int) => x == 2); // Yes Yes
 
 時間は消費した要素数と操作・コピーのコストに依存します。遅延変換の走査状態は列全体を保存しません。`to_vec` と `scan` は結果全体の領域を使います。
 
+### 読み取り専用の配列 { #readonly-iteration }
+
+読み取り専用の配列からも、要素や共有先を変更しないコールバックで `map`・`filter` を走査できます。
+
+```rusk
+readonly let values := [1, 2, 3];
+for (i, value) in values.filter((readonly x: Int) => x >= 2).enumerate() {
+    wt i, value;
+}
+for doubled in values.map((readonly x: Int) => x * 2) {
+    wt doubled;
+}
+```
+
+出力は順に `0 2`、`1 3`、`2`、`4`、`6` です。`filter` は先読みした要素を元の配列と共有します。`map` の結果が元の要素を共有する場合も、読み取り専用の制約が引き継がれます。新しく計算した独立の値は更新できます。コールバックが要素を書き換えたり外部に保持したりする可能性を処理系が除けない場合は、読み取り専用の走査を拒否します。
+
 ## 添字付き・同時・逆向き走査 { #iteration-adapters }
 
 | API | 結果 |

@@ -17,6 +17,7 @@
 - [β08とβ07の全体性能比較](beta08-performance.md)
 - [β09の作業計画と検証](beta09.md)
 - [β10の作業計画と検証](beta10.md)
+- [β14の読み取り専用走査と型付きextern](beta14.md)
 - [β12の計画と開発記録](beta12.md)
 - [β11の実装と検証](beta11.md)
 - [enumとOption移行の実装](enums.md)

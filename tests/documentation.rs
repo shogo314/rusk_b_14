@@ -142,6 +142,7 @@ fn algorithm_examples_include_the_required_libraries() {
         include_str!("../docs/library/algorithms.md"),
         &[
             ("", "2 4 6\n16\n0 1 3 6\nYes Yes\n"),
+            ("", "0 2\n1 3\n2\n4\n6\n"),
             ("", "6 0\n3 1\n"),
             ("", "6 16\n1 3 1 0\n"),
             ("", "7\n"),

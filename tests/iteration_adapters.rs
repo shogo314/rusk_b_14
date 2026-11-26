@@ -245,6 +245,11 @@ fn mismatches_and_structural_changes_keep_runtime_locations() {
             "enumerate index overflow",
         ),
         (
+            r#"let a:=[1,2];readonly let view:=a;let cursor:=view.filter((readonly x:Int)=>true);wt __iter_has_next__(cursor);a.push_back(3);__iter_next__(cursor);"#,
+            "Yes\n",
+            "container changed during iteration",
+        ),
+        (
             r#"let a:=[1,2];let cursor:=a.reversed();a.push_back(3);wt "before";cursor.to_vec();"#,
             "before\n",
             "container changed during iteration",

@@ -60,7 +60,7 @@ panicが発生した場合は`Rusk internal compiler error`に続けて、パッ
 
 生成C++のヘッダーには処理系の版・公開元URL・取得できる場合のGitリビジョン・ビルド時の変更有無・最適化の指定を記録します。末尾には利用者のRuskソースと、そのソースがincludeしたRuskファイルの全文をコメントで掲載します。組み込み標準ライブラリの出典は、ヘッダーの処理系の版・公開元URL・リビジョンで確認します。`//|`形式は行末のバックスラッシュによるC++の行連結を防ぐ包装を付け、`// Rusk source JSON:`の各行にファイル名と正確な元テキストを記録します。現在時刻は追加しません。HIR・LIRなどの中間表現には全文コメントを追加しません。
 
-標準ライブラリの`compiler_version()`・`compiler_revision()`・`compiler_modified()`・`compiler_source_url()`から、実行ファイルを生成したコンパイラの情報を取得できます。リビジョンと変更有無は、Git情報を取得できない配布ビルドではNoneです。β版の出典記録と正式版0.1.0の公開前に確認する事項は[作業計画](../development/plan.md)を参照してください。
+標準ライブラリの`compiler_version()`・`compiler_revision()`・`compiler_modified()`・`compiler_source_url()`から、実行ファイルを生成したコンパイラの情報を取得できます。リビジョンと変更有無は、Git情報を取得できない配布ビルドではNoneです。β版の出典記録と正式版0.0.1の公開前に確認する事項は[作業計画](../development/plan.md)を参照してください。
 
 ## ソースを整形する
 
