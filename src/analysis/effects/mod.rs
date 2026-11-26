@@ -178,6 +178,14 @@ pub(crate) struct ReturnAlias {
     pub parameter: usize,
     pub parameter_path: Vec<Projection>,
 }
+/// A cursor can cache a reference already reachable from the same argument.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct CursorAlias {
+    pub parameter: usize,
+    pub target_path: Vec<Projection>,
+    pub source_path: Vec<Projection>,
+}
+
 /// A may-set, including references contained in an aggregate. Unknown can
 /// exclude specific parameters. Fresh denotes a possible independent allocation.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -350,6 +358,7 @@ pub(crate) struct Summary {
     pub may_diverge: Effect,
     /// Trusted cursor operations may change state but keep their input routes stable.
     pub cursor_step: bool,
+    pub cursor_aliases: BTreeSet<CursorAlias>,
 }
 impl Summary {
     pub fn unanalyzed(parameters: usize) -> Self {
@@ -365,6 +374,7 @@ impl Summary {
             may_fail: Effect::Unknown,
             may_diverge: Effect::Unknown,
             cursor_step: false,
+            cursor_aliases: BTreeSet::new(),
         }
     }
     pub fn opaque(parameters: usize) -> Self {
@@ -402,6 +412,7 @@ impl Summary {
             may_fail: Effect::No,
             may_diverge: Effect::No,
             cursor_step: false,
+            cursor_aliases: BTreeSet::new(),
         }
     }
     pub fn validate(&self, parameters: usize) -> Result<(), String> {
@@ -476,6 +487,25 @@ impl Summary {
                 for path in paths {
                     project_type(ty, &path.path, types)?;
                 }
+            }
+        }
+        if self.cursor_aliases.len() > MAX_ALIASES
+            || self.cursor_aliases.iter().any(|alias| {
+                !self.cursor_step
+                    || alias.parameter >= parameters.len()
+                    || alias.target_path.is_empty()
+                    || alias.target_path.len() > MAX_PATH
+                    || alias.source_path.len() > MAX_PATH
+            })
+        {
+            return Err("invalid cursor cache aliases".into());
+        }
+        for alias in &self.cursor_aliases {
+            let ty = &parameters[alias.parameter];
+            if project_type(ty, &alias.source_path, types)?
+                != project_type(ty, &alias.target_path, types)?
+            {
+                return Err("cursor cache alias type mismatch".into());
             }
         }
         for alias in &self.returned.aliases {

@@ -362,6 +362,7 @@ fn operation(
                     };
                     if callee.body.is_none()
                         && !effect.root_only
+                        && !(callee.effects.cursor_step && effect.write_paths.is_some())
                         && program.readonly_members.contains(&call.args[index].ty)
                     {
                         checked.join(&AccessPaths::root(AccessInfo {
@@ -411,6 +412,20 @@ fn operation(
                     }
                     state.heap.join(&retained);
                     result.retained.join(&retained);
+                }
+            }
+            // A cursor can remember a projected access for a later call. Keep
+            // the access on the cursor even if its source is subsequently changed.
+            for alias in &callee.effects.cursor_aliases {
+                let owner = &references[alias.parameter];
+                let mut source = owner.clone();
+                for projection in &alias.source_path {
+                    source = state.project(&source, projection.clone());
+                }
+                if state.objects.store_path(owner, &alias.target_path, &source) {
+                    let access = state.objects.read(&source).collapse();
+                    state.heap.join(&access);
+                    result.retained.join(&access);
                 }
             }
             let restriction = &summaries[call.function];

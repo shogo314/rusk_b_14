@@ -1,7 +1,7 @@
 //! Explicit argument/result routes for calls made by trusted native bodies.
 use super::*;
 use crate::{
-    analysis::effects::{ParameterEffects, Projection, ReturnOrigins, SummarySource},
+    analysis::effects::{CursorAlias, ParameterEffects, Projection, ReturnOrigins, SummarySource},
     ir::hir::Type,
 };
 
@@ -21,8 +21,26 @@ enum Argument<P> {
 enum Destination<P> {
     Discard,
     Return(Vec<P>),
-    Store { parameter: usize, path: Vec<P> },
+    Store {
+        parameter: usize,
+        path: Vec<P>,
+    },
     Temporary(String),
+    Cache {
+        name: String,
+        parameter: usize,
+        path: Vec<P>,
+    },
+}
+
+fn underlying(mut ty: &str) -> &str {
+    while let Some(inner) = ty
+        .strip_prefix("__RuskReadonly<")
+        .and_then(|ty| ty.strip_suffix('>'))
+    {
+        ty = inner;
+    }
+    ty
 }
 
 fn temporary(text: &str) -> Option<&str> {
@@ -34,6 +52,7 @@ fn temporary(text: &str) -> Option<&str> {
 impl Specification {
     /// `via (0.source,1) into return.cached`, `into 0.cached`, or `into discard`.
     /// A result routed `into $name` can be passed to a later read-only call.
+    /// `into $name to 0.cached` also allows the receiver to save that result.
     pub(crate) fn parse(text: &str) -> Result<Self, String> {
         let (arguments, result) = text
             .split_once(" into ")
@@ -64,6 +83,18 @@ impl Specification {
         }
         let result = if result == "discard" {
             Destination::Discard
+        } else if let Some((name, target)) = result.split_once(" to ") {
+            let name = temporary(name).ok_or("native cursor cache requires a temporary")?;
+            let (_, parameter, path) =
+                aliases::parse(&format!("return={target}"), usize::MAX)?.remove(0);
+            if path.is_empty() {
+                return Err("native cursor cache requires a member destination".into());
+            }
+            Destination::Cache {
+                name: name.into(),
+                parameter,
+                path,
+            }
         } else if let Some(name) = temporary(result) {
             Destination::Temporary(name.into())
         } else if result == "return" || result.starts_with("return.") {
@@ -84,7 +115,8 @@ impl Specification {
         {
             return Err("native call mapping argument out of range".into());
         }
-        if let Destination::Store { parameter, .. } = self.result
+        if let Destination::Store { parameter, .. } | Destination::Cache { parameter, .. } =
+            self.result
             && parameter >= count
         {
             return Err("native call mapping destination out of range".into());
@@ -137,6 +169,15 @@ impl Specification {
             Destination::Discard => Destination::Discard,
             Destination::Temporary(name) => Destination::Temporary(name.clone()),
             Destination::Return(path) => Destination::Return(project(outer_result, path)?),
+            Destination::Cache {
+                name,
+                parameter,
+                path,
+            } => Destination::Cache {
+                name: name.clone(),
+                parameter: *parameter,
+                path: project(&outer_parameters[*parameter], path)?,
+            },
             Destination::Store { parameter, path } => Destination::Store {
                 parameter: *parameter,
                 path: project(&outer_parameters[*parameter], path)?,
@@ -146,8 +187,10 @@ impl Specification {
             function,
             arguments,
             argument_types: parameters.to_vec(),
-            quiet_result: !matches!(result_path, Destination::Temporary(_))
-                || super::quiet_release(result, types),
+            quiet_result: !matches!(
+                result_path,
+                Destination::Temporary(_) | Destination::Cache { .. }
+            ) || super::quiet_release(result, types),
             result: result_path,
             result_type: result.to_owned(),
         })
@@ -232,7 +275,11 @@ pub(crate) fn compose(
                 Argument::Parameter(parameter, path) => (parameter, path),
                 Argument::Temporary(name) => {
                     let (ty, origin) = temporaries.get(name.as_str())?;
-                    if Some(*ty) != dependency.argument_types.get(index).map(String::as_str)
+                    if Some(underlying(ty))
+                        != dependency
+                            .argument_types
+                            .get(index)
+                            .map(|ty| underlying(ty))
                         || !base.cursor_step
                         || effect.write != Effect::No
                         || effect.structural != Effect::No
@@ -294,7 +341,22 @@ pub(crate) fn compose(
             }
             parent.retained = parent.retained.max(passed.retained);
         }
-        if let Destination::Temporary(name) = &dependency.result {
+        for cache in &child.cursor_aliases {
+            if !base.cursor_step {
+                return None;
+            }
+            let Argument::Parameter(parameter, prefix) = &dependency.arguments[cache.parameter]
+            else {
+                return None;
+            };
+            let project = |path: &[Projection]| prefix.iter().chain(path).cloned().collect();
+            result.cursor_aliases.insert(CursorAlias {
+                parameter: *parameter,
+                target_path: project(&cache.target_path),
+                source_path: project(&cache.source_path),
+            });
+        }
+        if let Destination::Temporary(name) | Destination::Cache { name, .. } = &dependency.result {
             if !base.cursor_step
                 || child.returned.unknown
                 || temporaries.contains_key(name.as_str())
@@ -306,6 +368,23 @@ pub(crate) fn compose(
             // execute arbitrary code when the last shared handle is released.
             if origin.fresh && !dependency.quiet_result {
                 return None;
+            }
+            if let Destination::Cache {
+                parameter, path, ..
+            } = &dependency.result
+            {
+                for alias in &origin.aliases {
+                    // Caching in the cursor must never add references to another
+                    // incoming object that the cursor did not already reach.
+                    if alias.parameter != *parameter {
+                        return None;
+                    }
+                    result.cursor_aliases.insert(CursorAlias {
+                        parameter: *parameter,
+                        target_path: path.iter().chain(&alias.result_path).cloned().collect(),
+                        source_path: alias.parameter_path.clone(),
+                    });
+                }
             }
             temporaries.insert(name.as_str(), (&dependency.result_type, origin));
         }
@@ -360,7 +439,13 @@ pub(crate) fn compose(
                 }
             }
         }
-        if result.returned.aliases.len() > 64 {
+        if result.returned.aliases.len() > 64
+            || result.cursor_aliases.len() > 64
+            || result
+                .cursor_aliases
+                .iter()
+                .any(|alias| alias.target_path.len() > 16 || alias.source_path.len() > 16)
+        {
             return None;
         }
     }
@@ -406,6 +491,40 @@ pub(crate) fn compose(
             parameter.escape = parameter.escape.max(Effect::May);
         }
         result.returned.unknown = true;
+    }
+    // A call that produces and returns the cache itself must describe both
+    // the previously cached value and the value written during this call.
+    let mut pending: Vec<_> = result.returned.aliases.iter().cloned().collect();
+    while let Some(alias) = pending.pop() {
+        for cache in &result.cursor_aliases {
+            if alias.parameter != cache.parameter {
+                continue;
+            }
+            let mut derived = alias.clone();
+            if let Some(tail) = alias
+                .parameter_path
+                .strip_prefix(cache.target_path.as_slice())
+            {
+                derived.parameter_path = cache.source_path.iter().chain(tail).cloned().collect();
+            } else if let Some(tail) = cache
+                .target_path
+                .strip_prefix(alias.parameter_path.as_slice())
+            {
+                derived.result_path.extend_from_slice(tail);
+                derived.parameter_path.clone_from(&cache.source_path);
+            } else {
+                continue;
+            }
+            if derived.parameter_path.len() > 16 || derived.result_path.len() > 16 {
+                return None;
+            }
+            if result.returned.aliases.insert(derived.clone()) {
+                if result.returned.aliases.len() > 64 {
+                    return None;
+                }
+                pending.push(derived);
+            }
+        }
     }
     if result.returned.unknown {
         result.returned = crate::analysis::effects::ReturnOrigins {

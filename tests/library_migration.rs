@@ -2132,6 +2132,8 @@ fn lazy_algorithms_and_types_work_under_unrelated_user_names() {
         .replace(" via (0) into return.source", "")
         .replace(" via (0.source) into discard", "")
         .replace(" via (0) into discard", "")
+        .replace(" via (0.source) into $element to 0.cached", "")
+        .replace(" via (0.callback,$element) into discard", "")
         .replace(" via (0.source) into $element", "")
         .replace(" via (0.callback,$element) into return", "")
         .replace(" via (0.source) into return.source", "")

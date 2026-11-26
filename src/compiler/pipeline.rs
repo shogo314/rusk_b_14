@@ -206,16 +206,45 @@ impl Compiler {
             }
         }
         for (callee, parameter, ty, span) in &self.readonly_native_uses {
-            let effect = &lir.functions[*callee].effects.parameters[*parameter];
+            let effects = &lir.functions[*callee].effects;
+            let effect = &effects.parameters[*parameter];
             let protected = access_types::inner(ty).is_some()
                 || (hir.readonly_members.contains(ty)
                     && lir.functions[*callee].body.is_none()
-                    && !effect.root_only);
+                    && !effect.root_only
+                    && !(effects.cursor_step && effect.write_paths.is_some()));
             if protected
                 && (effect.write != crate::analysis::effects::Effect::No
                     || effect.structural != crate::analysis::effects::Effect::No)
             {
                 return Err(span.error(format!("cannot prove readonly access is preserved: native reference argument {} of '{}'",parameter+1,lir.functions[*callee].name)));
+            }
+        }
+        // Native cursor results can project through a qualified source even
+        // when the callback signature uses its unqualified ABI type.
+        let logical_types = std::cell::OnceCell::new();
+        for (id, function) in lir.functions.iter_mut().enumerate() {
+            if !function.effects.cursor_step {
+                continue;
+            }
+            let source = &self.functions[id];
+            for alias in &function.effects.returned.aliases {
+                let Some(ty) = source.params.get(alias.parameter) else {
+                    continue;
+                };
+                if (0..=alias.parameter_path.len()).any(|length| {
+                    crate::analysis::effects::project_type(
+                        ty,
+                        &alias.parameter_path[..length],
+                        logical_types.get_or_init(|| self.ir_types()),
+                    )
+                    .is_ok_and(|part| access_types::inner(&part).is_some())
+                }) {
+                    function.access.restrict_result_path(
+                        alias.result_path.clone(),
+                        access_types::info(&source.name.span, "readonly type"),
+                    );
+                }
             }
         }
         {

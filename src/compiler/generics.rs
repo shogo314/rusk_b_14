@@ -105,6 +105,32 @@ impl GenericFunction {
         let mut use_family_hints = false;
         loop {
             let before = bindings.len();
+            // An operation on the source can identify an element type more
+            // precisely than the callback signature that accepts the element.
+            for requirement in &self.calls {
+                budget.charge(depth)?;
+                if bound(&requirement.result, &self.parameters, bindings)
+                    || !bound(&requirement.name, &self.parameters, bindings)
+                    || !requirement
+                        .arguments
+                        .iter()
+                        .all(|a| bound(a, &self.parameters, bindings))
+                {
+                    continue;
+                }
+                let name = substitute(&requirement.name, bindings);
+                let arguments = requirement
+                    .arguments
+                    .iter()
+                    .map(|a| substitute(a, bindings))
+                    .collect::<Vec<_>>();
+                if let Some(result) =
+                    compiler.signature_result(&name, &arguments, self.scope, depth + 1, budget)?
+                    && !unify(&requirement.result, &result, &self.parameters, bindings)
+                {
+                    return Ok(false);
+                }
+            }
             for requirement in &self.callbacks {
                 let ty = substitute(&requirement.ty, bindings);
                 if self.parameters.iter().any(|p| {
@@ -176,30 +202,6 @@ impl GenericFunction {
             }
             if !self.infer_result(expected, bindings) {
                 return Ok(false);
-            }
-            for requirement in &self.calls {
-                budget.charge(depth)?;
-                if bound(&requirement.result, &self.parameters, bindings)
-                    || !bound(&requirement.name, &self.parameters, bindings)
-                    || !requirement
-                        .arguments
-                        .iter()
-                        .all(|a| bound(a, &self.parameters, bindings))
-                {
-                    continue;
-                }
-                let name = substitute(&requirement.name, bindings);
-                let arguments = requirement
-                    .arguments
-                    .iter()
-                    .map(|a| substitute(a, bindings))
-                    .collect::<Vec<_>>();
-                if let Some(result) =
-                    compiler.signature_result(&name, &arguments, self.scope, depth + 1, budget)?
-                    && !unify(&requirement.result, &result, &self.parameters, bindings)
-                {
-                    return Ok(false);
-                }
             }
             if bindings.len() == before {
                 if !use_family_hints {

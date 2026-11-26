@@ -14,7 +14,7 @@ extern type<I, F, T, R> Mapped {
 extern fn map<S, F, I, T, R>(source: S, callback: F) -> Mapped<I, F, T, R> {
     effects: "read_fresh",
     aliases: "return.callback=1",
-    code: "Obj<@{Mapped<I,F,T,R>}> @{fn}(Obj<@{S}> source,Obj<@{F}> callback,Loc loc){using Result [[maybe_unused]]=@{nonunit R};[[maybe_unused]]bool has=@{writes __iter_has_next__(I)->Bool};[[maybe_unused]]bool next=@{writes __iter_next__(I)->T};[[maybe_unused]]bool invoke=@{writes_invoke F(T)->R};return make_obj<@{Mapped<I,F,T,R>}>(@{Mapped<I,F,T,R>}{@{boxed_call __iter__(S)->I via (0) into return.source}(source,loc),callback,{},false,false});}",
+    code: "Obj<@{Mapped<I,F,T,R>}> @{fn}(Obj<@{S}> source,Obj<@{F}> callback,Loc loc){using Result [[maybe_unused]]=@{nonunit R};auto cursor=@{boxed_call __iter__(S)->I via (0) into return.source}(source,loc);[[maybe_unused]]bool has=@{writes __iter_has_next__(I)->Bool};[[maybe_unused]]bool next=@{writes __iter_next__(I)->T};[[maybe_unused]]bool invoke=@{writes_invoke F(T)->R};return make_obj<@{Mapped<I,F,T,R>}>(@{Mapped<I,F,T,R>}{cursor,callback,{},false,false});}",
 }
 
 extern fn __iter__<I, F, T, R>(it: Mapped<I, F, T, R>) -> Mapped<I, F, T, R> {
@@ -60,7 +60,7 @@ extern type<I, F, T> Filtered {
 extern fn filter<S, F, I, T>(source: S, callback: F) -> Filtered<I, F, T> {
     effects: "read_fresh",
     aliases: "return.callback=1",
-    code: "Obj<@{Filtered<I,F,T>}> @{fn}(Obj<@{S}> source,Obj<@{F}> callback,Loc loc){using Result [[maybe_unused]]=@{nonunit T};[[maybe_unused]]bool has=@{writes __iter_has_next__(I)->Bool};[[maybe_unused]]bool next=@{writes __iter_next__(I)->T};[[maybe_unused]]bool invoke=@{writes_invoke F(T)->Bool};return make_obj<@{Filtered<I,F,T>}>(@{Filtered<I,F,T>}{@{boxed_call __iter__(S)->I via (0) into return.source}(source,loc),callback,{},false,false});}",
+    code: "Obj<@{Filtered<I,F,T>}> @{fn}(Obj<@{S}> source,Obj<@{F}> callback,Loc loc){using Result [[maybe_unused]]=@{nonunit T};auto cursor=@{boxed_call __iter__(S)->I via (0) into return.source}(source,loc);[[maybe_unused]]bool has=@{writes __iter_has_next__(I)->Bool};[[maybe_unused]]bool next=@{writes __iter_next__(I)->T};[[maybe_unused]]bool invoke=@{writes_invoke F(T)->Bool};return make_obj<@{Filtered<I,F,T>}>(@{Filtered<I,F,T>}{cursor,callback,{},false,false});}",
 }
 
 extern fn __iter__<I, F, T>(it: Filtered<I, F, T>) -> Filtered<I, F, T> {
@@ -70,13 +70,16 @@ extern fn __iter__<I, F, T>(it: Filtered<I, F, T>) -> Filtered<I, F, T> {
 }
 
 extern fn __iter_has_next__<I, F, T>(it: Filtered<I, F, T>) -> Bool {
+    effects: "checked_cursor_step",
     depends: "__runtime_lazy_iterators__",
-    code: "Obj<@{Bool}> @{fn}(Obj<@{Filtered<I,F,T>}> it,Loc loc){if(it->finished)return make_obj<@{Bool}>(false);rusk_guard_iter(it->source,loc);if(it->ready)return make_obj<@{Bool}>(true);while(*@{boxed_call __iter_has_next__(I)->Bool}(it->source,loc)){auto value=@{boxed_call __iter_next__(I)->T}(it->source,loc);auto accepted=@{boxed_invoke F(T)->Bool}(it->callback,value,loc);rusk_guard_iter(it->source,loc);if(*accepted){it->cached=value;it->ready=true;return make_obj<@{Bool}>(true);}}it->finished=true;return make_obj<@{Bool}>(false);}",
+    code: "Obj<@{Bool}> @{fn}(Obj<@{Filtered<I,F,T>}> it,Loc loc){if(it->finished)return make_obj<@{Bool}>(false);rusk_guard_iter(it->source,loc);if(it->ready)return make_obj<@{Bool}>(true);while(*@{boxed_call __iter_has_next__(I)->Bool via (0.source) into discard}(it->source,loc)){auto value=@{boxed_call __iter_next__(I)->T via (0.source) into $element to 0.cached}(it->source,loc);auto accepted=@{boxed_invoke F(T)->Bool via (0.callback,$element) into discard}(it->callback,value,loc);rusk_guard_iter(it->source,loc);if(*accepted){it->cached=value;it->ready=true;return make_obj<@{Bool}>(true);}}it->finished=true;return make_obj<@{Bool}>(false);}",
 }
 
 extern fn __iter_next__<I, F, T>(it: Filtered<I, F, T>) -> T {
+    effects: "checked_cursor_step",
+    aliases: "return=0.cached",
     return_abi: "object",
-    code: "Obj<@{nonunit T}> @{fn}(Obj<@{Filtered<I,F,T>}> it,Loc loc){if(!*@{boxed_call __iter_has_next__(Filtered<I,F,T>)->Bool}(it,loc))fail(loc,\"iterator exhausted\");auto value=it->cached;it->cached.reset();it->ready=false;return value;}",
+    code: "Obj<@{nonunit T}> @{fn}(Obj<@{Filtered<I,F,T>}> it,Loc loc){if(!*@{boxed_call __iter_has_next__(Filtered<I,F,T>)->Bool via (0) into discard}(it,loc))fail(loc,\"iterator exhausted\");auto value=it->cached;it->cached.reset();it->ready=false;return value;}",
 }
 
 /// 走査状態・述語・キャッシュ済みの値を各型の `copy` でコピーします。

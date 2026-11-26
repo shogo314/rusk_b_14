@@ -151,6 +151,77 @@ read([4, 7]);
 }
 
 #[test]
+fn readonly_vector_filter_preserves_cached_aliases_and_copied_positions() {
+    runs(
+        r#"
+fn read(readonly noescape values: Vec<Int>) {
+    let cursor := values.filter((readonly x: Int) => x % 2 == 1);
+    let shared := cursor;
+    wt __iter_has_next__(cursor), __iter_has_next__(shared);
+    let detached = cursor;
+    wt __iter_next__(cursor), __iter_next__(shared), __iter_next__(detached);
+    for (i, value) in values.filter((readonly x: Int) => x > 1).map((readonly x: Int) => x * 10).enumerate() {
+        wt i, value;
+    }
+}
+read([1, 2, 3, 5]);
+"#,
+        "Yes Yes\n1 3 1\n0 20\n1 30\n2 50\n",
+    );
+    for (source, operation) in [
+        (
+            "readonly let a := [1]; for value in a.filter((x:Int)=>{x=2;true}) { wt value; }",
+            "__iter_has_next__",
+        ),
+        (
+            "readonly let a := [[1]]; let it := a.filter((readonly x:Vec<Int>)=>true); if __iter_has_next__(it) { let alias := __iter_next__(it)[0]; alias = 2; }",
+            "__assign__",
+        ),
+        (
+            "fn leak(noescape values:Vec<Int>)->Int{let it := values.filter((readonly x:Int)=>true); __iter_has_next__(it); return __iter_next__(it);} leak([1]);",
+            "noescape",
+        ),
+    ] {
+        for options in [&[][..], &["--no-opt"][..]] {
+            let output = Case::new(source).compile_with_options(options);
+            assert_eq!(output.status.code(), Some(1), "{source}");
+            let error = String::from_utf8(output.stderr).unwrap();
+            assert!(
+                error.contains(operation) && error.contains("main.rusk:"),
+                "{error}"
+            );
+        }
+    }
+}
+
+#[test]
+fn iterator_adapters_keep_readonly_element_types() {
+    runs(
+        r#"
+let values: Vec<readonly Int> := [4, 7];
+for (i, value) in values.enumerate() { wt i, value; }
+for (_, value) in zip(0 .. 2, values) { wt value; }
+for value in values.map((readonly x: Int) => x + 1) { wt value; }
+for value in values.filter((readonly x: Int) => x > 4) { wt value; }
+"#,
+        "0 4\n1 7\n4\n7\n5\n8\n7\n",
+    );
+    for adapter in ["map((readonly x:Int)=>x)", "filter((readonly x:Int)=>true)"] {
+        let source =
+            format!("let values:Vec<readonly Int>:=[1]; for x in values.{adapter} {{ x=2; }}");
+        for options in [&[][..], &["--no-opt"][..]] {
+            let output = Case::new(&source).compile_with_options(options);
+            assert_eq!(output.status.code(), Some(1), "{source}");
+            let error = String::from_utf8(output.stderr).unwrap();
+            assert!(
+                error.contains("readonly") && error.contains("__assign__"),
+                "{error}"
+            );
+        }
+    }
+}
+
+#[test]
 fn mismatches_and_structural_changes_keep_runtime_locations() {
     for (source, prefix, expected) in [
         (
