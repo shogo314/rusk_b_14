@@ -110,6 +110,7 @@ pub struct Compiler {
     native_derivations: BTreeMap<String, generics::GenericFunction>,
     native_derivation_tasks: BTreeMap<usize, (String, String)>,
     native_derived_functions: BTreeSet<usize>,
+    native_concrete_templates: BTreeSet<usize>,
     record_copy_functions: BTreeMap<String, usize>,
     generic_extern_types: BTreeMap<String, externs::ExternalType>,
     preparing_extern_types: BTreeSet<String>,

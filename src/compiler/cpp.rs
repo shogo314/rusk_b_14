@@ -227,6 +227,7 @@ impl Compiler {
                 .partition(|&id| {
                     self.functions[id].origin != Origin::Generated
                         && !self.generic_calls.contains_key(&id)
+                        && !self.native_concrete_templates.contains(&id)
                         && !self.native_derived_functions.contains(&id)
                 });
         let definitions = |ids: Vec<usize>| {
@@ -239,6 +240,7 @@ impl Compiler {
             self.generic_instances
                 .values()
                 .copied()
+                .chain(self.native_concrete_templates.iter().copied())
                 .filter(|&id| self.functions[id].body.is_none() && reachable[id]),
         );
         crate::backend::Context {

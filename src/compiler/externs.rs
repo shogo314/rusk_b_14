@@ -134,6 +134,56 @@ impl Compiler {
         Ok(())
     }
 
+    pub(super) fn register_concrete_native_template(
+        &mut self,
+        name: &Name,
+        properties: &BTreeMap<String, String>,
+        cpp_name: &str,
+    ) -> Result<(), String> {
+        match properties.get("template").map(String::as_str) {
+            None => return Ok(()),
+            Some("true") => {}
+            Some(_) => return Err(name.span.error("native template must be true")),
+        }
+        if !template::identifier(cpp_name) {
+            return Err(name
+                .span
+                .error("native template requires an unqualified C++ identifier"));
+        }
+        self.native_concrete_templates.insert(self.functions.len());
+        self.native_resource_requirements
+            .entry(name.span.clone())
+            .or_default();
+        Ok(())
+    }
+
+    pub(super) fn prepare_concrete_native_templates(&mut self) -> Result<(), String> {
+        // Signatures are registered first so typed references can target a later
+        // declaration or participate in a recursive group.
+        for id in self.native_concrete_templates.clone() {
+            let function = self.functions[id].clone();
+            let span = &function.name.span;
+            let parts = template::parse(&function.code, true).map_err(|e| span.error(e))?;
+            if function.origin != Origin::StandardLibrary && template::has_mappings(&parts) {
+                return Err(span
+                    .error("native call mappings are reserved for the embedded standard library"));
+            }
+            template::validate_argument_bounds(&parts, function.params.len())
+                .map_err(|e| span.error(e))?;
+            self.validate_native_parts(parts.clone(), &[], &BTreeSet::new(), span)?;
+            let code = self.render_native_parts(
+                parts,
+                &BTreeMap::new(),
+                Some(&function.cpp),
+                span,
+                Some(id),
+                &mut 4096,
+            )?;
+            self.functions[id].code = code;
+        }
+        Ok(())
+    }
+
     pub(super) fn register_extern_function(
         &mut self,
         name: &Name,

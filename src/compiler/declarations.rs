@@ -69,6 +69,7 @@ impl Compiler {
         self.validate_declared_types()?;
         self.register_concrete_declarations(sources)?;
         self.prepare_symbols()?;
+        self.prepare_concrete_native_templates()?;
         self.prepare_native_types()?;
         Ok(())
     }
@@ -236,6 +237,7 @@ impl Compiler {
                                         "return_abi",
                                         "implicit_call",
                                         "depends",
+                                        "template",
                                     ],
                                 )?;
                                 self.register_implicit_call(n, params.len(), p)?;
@@ -289,6 +291,7 @@ impl Compiler {
                                 properties,
                                 source.origin,
                             )?;
+                            self.register_concrete_native_template(n, properties, &cpp)?;
                         }
                         if self.context.declaration_scope != scopes::ScopeId::ROOT
                             && matches!(s, Stmt::UserFunction(..))

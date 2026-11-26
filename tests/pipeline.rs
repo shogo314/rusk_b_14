@@ -253,3 +253,73 @@ wt entry(42);
         assert_eq!(output.stdout, b"42\n");
     }
 }
+
+#[test]
+fn concrete_native_templates_emit_only_transitively_reachable_functions() {
+    let case = Case::new(
+        r#"
+struct Seed<T> { value:T; }
+extern fn entry(x:Seed<Int>)->Int {
+    template:"true",
+    cpp_name:"tracked_entry",
+    code:"@{return Int} @{fn}(Obj<@{Seed<Int>}> x,Loc loc){return make_obj<@{Int}>(@{value_call helper(Seed<Int>)->Int}(x,loc));}",
+}
+extern fn helper(x:Seed<Int>)->Int {
+    template:"true",
+    cpp_name:"tracked_helper",
+    code:"@{return Int} @{fn}(Obj<@{Seed<Int>}> x,Loc loc){return @{call leaf(Seed<Int>)->Int}(x,loc);}",
+}
+fn leaf(x:Seed<Int>)->Int {return x.value+1;}
+extern fn helper(x:Str)->Str {
+    template:"true",
+    cpp_name:"tracked_unused_overload",
+    code:"@{return Str} @{fn}(Obj<@{Str}> x,Loc){return x;}",
+}
+extern fn hidden(x:Int)->Int {
+    template:"true",
+    cpp_name:"tracked_hidden",
+    code:"@{return Int} @{fn}(Obj<@{Int}> x,Loc loc){return @{call dead_leaf(Int)->Int}(x,loc);}",
+}
+fn dead_leaf(x:Int)->Int {return x-1;}
+fn idle(x:Int)->Int {return hidden(x);}
+wt entry(Seed::<Int>{value:41});
+"#,
+    );
+    for options in [&[][..], &["--no-opt"][..]] {
+        let output = case.run_with_options("", options);
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"42\n");
+        let cpp = std::fs::read_to_string(case.0.join("main.cpp")).unwrap();
+        let (body, _) = cpp.split_once("\n// Rusk source: ").unwrap();
+        for included in ["tracked_entry(", "tracked_helper(", ": leaf\n"] {
+            assert!(body.contains(included), "{included}");
+        }
+        for excluded in [
+            "tracked_hidden(",
+            "tracked_unused_overload(",
+            ": idle\n",
+            ": dead_leaf\n",
+        ] {
+            assert!(!body.contains(excluded), "{excluded}");
+        }
+    }
+}
+
+#[test]
+fn unused_concrete_native_templates_still_validate_typed_references() {
+    let case = Case::new(
+        r#"
+extern fn idle(x:Int)->Int {
+    template:"true",
+    cpp_name:"tracked_invalid",
+    code:"@{return Int} @{fn}(Obj<@{Int}> x,Loc loc){return @{call missing(Int)->Int}(x,loc);}",
+}
+wt 1;
+"#,
+    );
+    let output = case.compile();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("no matching native callable 'missing'")
+    );
+}
