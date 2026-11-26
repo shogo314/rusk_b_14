@@ -114,11 +114,14 @@ extern fn __copy__<T>(it: Iter<Vec<T>>) -> Iter<Vec<T>> {
 }
 
 extern fn __iter_has_next__<T>(it: Iter<Vec<T>>) -> Bool {
+    effects: "checked_read_fresh",
     lower: "(check_iter($0,$loc), $0->index < $0->owner->size())",
     code: "Obj<bool> @{fn}(Obj<@{Iter<Vec<T>>}> it, [[maybe_unused]] Loc loc) { check_iter(it,loc); return make_obj<bool>(it->index<it->owner->size()); }",
 }
 
 extern fn __iter_next__<T>(it: Iter<Vec<T>>) -> T {
+    effects: "checked_cursor_step",
+    aliases: "return=0.owner.element",
     return_abi: "object",
     lower_owned: "([&](){check_iter($0,$loc);if($0->index>=$0->owner->size())fail($loc,\"iterator exhausted\");return (*$0->owner)[$0->index++];}())",
     lower_borrowed: "([&]() -> const auto&{check_iter($0,$loc);if($0->index>=$0->owner->size())fail($loc,\"iterator exhausted\");return (*$0->owner)[$0->index++];}())",

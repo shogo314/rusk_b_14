@@ -79,6 +79,78 @@ wt units.enumerate().to_vec().len(), zip(units, [1, 2]).to_vec().len();
 }
 
 #[test]
+fn readonly_vector_iteration_advances_cursors_and_preserves_element_aliases() {
+    runs(
+        r#"
+fn read(readonly noescape values: Vec<Int>) {
+    for value in values { wt value; }
+    for (index, value) in values.enumerate() { wt index, value; }
+    for (left, right) in zip(values, values) { wt left, right; }
+    let cursor := values.enumerate();
+    let shared := cursor;
+    let detached = cursor;
+    wt __iter_next__(cursor), __iter_next__(shared), __iter_next__(detached);
+}
+read([4, 7]);
+"#,
+        "4\n7\n0 4\n1 7\n4 4\n7 7\n0 4 1 7 0 4\n",
+    );
+    for source in [
+        "readonly let a := [1]; for value in a { let alias := value; alias = 2; }",
+        "readonly let a := [1]; for (i, value) in enumerate(a) { value = 2; }",
+        "readonly let a := [[1]]; for (left, right) in zip([0], a) { let alias := right[0]; alias = 2; }",
+        "readonly let a := [1]; for value in a { a.push_back(2); }",
+    ] {
+        for options in [&[][..], &["--no-opt"][..]] {
+            let output = Case::new(source).compile_with_options(options);
+            assert_eq!(output.status.code(), Some(1), "{source}");
+            let error = String::from_utf8(output.stderr).unwrap();
+            assert!(
+                error.contains("cannot modify readonly access") && error.contains("main.rusk:"),
+                "{error}"
+            );
+        }
+    }
+}
+
+#[test]
+fn readonly_vector_map_tracks_callback_input_and_result_separately() {
+    runs(
+        r#"
+fn read(readonly noescape values: Vec<Int>) {
+    for (index, value) in values.map((readonly x: Int) => x + 1).enumerate() {
+        value += 1;
+        wt index, value;
+    }
+    for value in values.map((readonly x: Int) => x) { wt value; }
+}
+read([4, 7]);
+"#,
+        "0 6\n1 9\n4\n7\n",
+    );
+    for (source, operation) in [
+        (
+            "readonly let a := [1]; for value in a.map((x:Int)=>{x=2;x}) { wt value; }",
+            "__iter_next__",
+        ),
+        (
+            "readonly let a := [[1]]; for value in a.map((readonly x:Vec<Int>)=>x) { let alias := value[0]; alias = 2; }",
+            "__assign__",
+        ),
+    ] {
+        for options in [&[][..], &["--no-opt"][..]] {
+            let output = Case::new(source).compile_with_options(options);
+            assert_eq!(output.status.code(), Some(1), "{source}");
+            let error = String::from_utf8(output.stderr).unwrap();
+            assert!(
+                error.contains("readonly") && error.contains(operation),
+                "{error}"
+            );
+        }
+    }
+}
+
+#[test]
 fn mismatches_and_structural_changes_keep_runtime_locations() {
     for (source, prefix, expected) in [
         (

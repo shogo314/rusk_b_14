@@ -12,7 +12,9 @@ extern type<I, F, T, R> Mapped {
 
 /// 要素を取り出すたびに変換関数を呼ぶ遅延イテレータを作ります。
 extern fn map<S, F, I, T, R>(source: S, callback: F) -> Mapped<I, F, T, R> {
-    code: "Obj<@{Mapped<I,F,T,R>}> @{fn}(Obj<@{S}> source,Obj<@{F}> callback,Loc loc){using Result [[maybe_unused]]=@{nonunit R};[[maybe_unused]]auto has=@{boxed_call __iter_has_next__(I)->Bool};[[maybe_unused]]auto next=@{boxed_call __iter_next__(I)->T};[[maybe_unused]]auto invoke=@{boxed_invoke F(T)->R};return make_obj<@{Mapped<I,F,T,R>}>(@{Mapped<I,F,T,R>}{@{boxed_call __iter__(S)->I}(source,loc),callback,{},false,false});}",
+    effects: "read_fresh",
+    aliases: "return.callback=1",
+    code: "Obj<@{Mapped<I,F,T,R>}> @{fn}(Obj<@{S}> source,Obj<@{F}> callback,Loc loc){using Result [[maybe_unused]]=@{nonunit R};[[maybe_unused]]bool has=@{writes __iter_has_next__(I)->Bool};[[maybe_unused]]bool next=@{writes __iter_next__(I)->T};[[maybe_unused]]bool invoke=@{writes_invoke F(T)->R};return make_obj<@{Mapped<I,F,T,R>}>(@{Mapped<I,F,T,R>}{@{boxed_call __iter__(S)->I via (0) into return.source}(source,loc),callback,{},false,false});}",
 }
 
 extern fn __iter__<I, F, T, R>(it: Mapped<I, F, T, R>) -> Mapped<I, F, T, R> {
@@ -22,13 +24,15 @@ extern fn __iter__<I, F, T, R>(it: Mapped<I, F, T, R>) -> Mapped<I, F, T, R> {
 }
 
 extern fn __iter_has_next__<I, F, T, R>(it: Mapped<I, F, T, R>) -> Bool {
-    code: "Obj<@{Bool}> @{fn}(Obj<@{Mapped<I,F,T,R>}> it,Loc loc){if(it->finished)return make_obj<@{Bool}>(false);bool result=*@{boxed_call __iter_has_next__(I)->Bool}(it->source,loc);if(!result)it->finished=true;return make_obj<@{Bool}>(result);}",
+    effects: "checked_cursor_step",
+    code: "Obj<@{Bool}> @{fn}(Obj<@{Mapped<I,F,T,R>}> it,Loc loc){if(it->finished)return make_obj<@{Bool}>(false);bool result=*@{boxed_call __iter_has_next__(I)->Bool via (0.source) into discard}(it->source,loc);if(!result)it->finished=true;return make_obj<@{Bool}>(result);}",
 }
 
 extern fn __iter_next__<I, F, T, R>(it: Mapped<I, F, T, R>) -> R {
+    effects: "checked_cursor_step",
     depends: "__runtime_lazy_iterators__",
     return_abi: "object",
-    code: "Obj<@{nonunit R}> @{fn}(Obj<@{Mapped<I,F,T,R>}> it,Loc loc){if(!*@{boxed_call __iter_has_next__(Mapped<I,F,T,R>)->Bool}(it,loc))fail(loc,\"iterator exhausted\");auto value=@{boxed_call __iter_next__(I)->T}(it->source,loc);auto result=@{boxed_invoke F(T)->R}(it->callback,value,loc);rusk_guard_iter(it->source,loc);return result;}",
+    code: "Obj<@{nonunit R}> @{fn}(Obj<@{Mapped<I,F,T,R>}> it,Loc loc){if(!*@{boxed_call __iter_has_next__(Mapped<I,F,T,R>)->Bool via (0) into discard}(it,loc))fail(loc,\"iterator exhausted\");auto value=@{boxed_call __iter_next__(I)->T via (0.source) into $element}(it->source,loc);auto result=@{boxed_invoke F(T)->R via (0.callback,$element) into return}(it->callback,value,loc);rusk_guard_iter(it->source,loc);return result;}",
 }
 
 /// 走査状態・コールバック・キャッシュ済みの値を各型の `copy` でコピーします。
@@ -54,7 +58,9 @@ extern type<I, F, T> Filtered {
 
 /// 述語を満たす要素だけを走査順に返す遅延イテレータを作ります。
 extern fn filter<S, F, I, T>(source: S, callback: F) -> Filtered<I, F, T> {
-    code: "Obj<@{Filtered<I,F,T>}> @{fn}(Obj<@{S}> source,Obj<@{F}> callback,Loc loc){using Result [[maybe_unused]]=@{nonunit T};[[maybe_unused]]auto has=@{boxed_call __iter_has_next__(I)->Bool};[[maybe_unused]]auto next=@{boxed_call __iter_next__(I)->T};[[maybe_unused]]auto invoke=@{boxed_invoke F(T)->Bool};return make_obj<@{Filtered<I,F,T>}>(@{Filtered<I,F,T>}{@{boxed_call __iter__(S)->I}(source,loc),callback,{},false,false});}",
+    effects: "read_fresh",
+    aliases: "return.callback=1",
+    code: "Obj<@{Filtered<I,F,T>}> @{fn}(Obj<@{S}> source,Obj<@{F}> callback,Loc loc){using Result [[maybe_unused]]=@{nonunit T};[[maybe_unused]]bool has=@{writes __iter_has_next__(I)->Bool};[[maybe_unused]]bool next=@{writes __iter_next__(I)->T};[[maybe_unused]]bool invoke=@{writes_invoke F(T)->Bool};return make_obj<@{Filtered<I,F,T>}>(@{Filtered<I,F,T>}{@{boxed_call __iter__(S)->I via (0) into return.source}(source,loc),callback,{},false,false});}",
 }
 
 extern fn __iter__<I, F, T>(it: Filtered<I, F, T>) -> Filtered<I, F, T> {

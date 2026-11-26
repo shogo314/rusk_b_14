@@ -85,7 +85,7 @@ impl ParameterEffects {
             retained: Effect::Unknown,
         }
     }
-    fn paths(&self) -> Option<BTreeSet<WritePath>> {
+    pub(crate) fn paths(&self) -> Option<BTreeSet<WritePath>> {
         if self.root_only {
             Some(
                 [WritePath {
@@ -98,7 +98,7 @@ impl ParameterEffects {
             self.write_paths.clone()
         }
     }
-    fn join(&mut self, other: &Self) {
+    pub(crate) fn join(&mut self, other: &Self) {
         if other.write != Effect::No || other.structural != Effect::No {
             self.write_paths = if self.write == Effect::No && self.structural == Effect::No {
                 other.paths()
@@ -285,7 +285,11 @@ impl ReturnOrigins {
             .collect();
         result.bounded()
     }
-    fn substitute(&self, args: &[Self], mut excluded_parameters: BTreeSet<usize>) -> Self {
+    pub(crate) fn substitute(
+        &self,
+        args: &[Self],
+        mut excluded_parameters: BTreeSet<usize>,
+    ) -> Self {
         if self.unknown {
             for (index, actual) in args.iter().enumerate() {
                 if !self.may_share(index) {
@@ -344,6 +348,8 @@ pub(crate) struct Summary {
     pub external_write: Effect,
     pub may_fail: Effect,
     pub may_diverge: Effect,
+    /// Trusted cursor operations may change state but keep their input routes stable.
+    pub cursor_step: bool,
 }
 impl Summary {
     pub fn unanalyzed(parameters: usize) -> Self {
@@ -358,6 +364,7 @@ impl Summary {
             external_write: Effect::Unknown,
             may_fail: Effect::Unknown,
             may_diverge: Effect::Unknown,
+            cursor_step: false,
         }
     }
     pub fn opaque(parameters: usize) -> Self {
@@ -394,6 +401,7 @@ impl Summary {
             external_write: Effect::No,
             may_fail: Effect::No,
             may_diverge: Effect::No,
+            cursor_step: false,
         }
     }
     pub fn validate(&self, parameters: usize) -> Result<(), String> {

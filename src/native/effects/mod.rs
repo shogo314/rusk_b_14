@@ -117,20 +117,29 @@ pub(crate) fn contract(
     match specification {
         "read_fresh" => {}
         "checked_read_fresh" => summary.may_fail = Effect::May,
-        "write_first" | "checked_write_first" | "checked_resize_first" | "checked_mutate_fresh" => {
+        "write_first"
+        | "checked_write_first"
+        | "checked_resize_first"
+        | "checked_mutate_fresh"
+        | "checked_cursor_step" => {
             let first = summary
                 .parameters
                 .first_mut()
                 .ok_or("native write contract requires an argument")?;
             first.write = Effect::May;
             first.root_only = true;
+            summary.cursor_step = specification == "checked_cursor_step";
             if specification == "checked_resize_first" {
                 first.structural = Effect::May;
             }
             if specification != "write_first" {
                 summary.may_fail = Effect::May;
             }
-            if specification != "checked_mutate_fresh" && result != "Unit" {
+            if !matches!(
+                specification,
+                "checked_mutate_fresh" | "checked_cursor_step"
+            ) && result != "Unit"
+            {
                 return Err("native write contract requires Unit result".into());
             }
         }

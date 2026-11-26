@@ -27,13 +27,15 @@ extern fn __iter__<I, T>(it: Enumerated<I, T>) -> Enumerated<I, T> {
 }
 
 extern fn __iter_has_next__<I, T>(it: Enumerated<I, T>) -> Bool {
+    effects: "checked_cursor_step",
     depends: "__runtime_iter_adapters__",
-    code: "Obj<bool> @{fn}(Obj<@{Enumerated<I,T>}> it, Loc loc) { return make_obj<bool>(rusk_enumerate_ready(it, loc, @{boxed_call __iter_has_next__(I)->Bool})); }",
+    code: "Obj<bool> @{fn}(Obj<@{Enumerated<I,T>}> it, Loc loc) { return make_obj<bool>(rusk_enumerate_ready(it, loc, @{boxed_call __iter_has_next__(I)->Bool via (0.source) into discard})); }",
 }
 
 extern fn __iter_next__<I, T>(it: Enumerated<I, T>) -> (Int, T) {
+    effects: "checked_cursor_step",
     depends: "__runtime_iter_adapters__",
-    code: "Obj<@{Tuple<Int,T>}> @{fn}(Obj<@{Enumerated<I,T>}> it, Loc loc) { if (!rusk_enumerate_ready(it, loc, @{boxed_call __iter_has_next__(I)->Bool})) fail(loc, \"iterator exhausted\"); auto index = rusk_enumerate_index(it, loc); auto value = @{boxed_call __iter_next__(I)->T}(it->source, loc); rusk_guard_iter(it, loc); return make_obj<@{Tuple<Int,T>}>({make_obj<@{Int}>(index), value}); }",
+    code: "Obj<@{Tuple<Int,T>}> @{fn}(Obj<@{Enumerated<I,T>}> it, Loc loc) { if (!rusk_enumerate_ready(it, loc, @{boxed_call __iter_has_next__(I)->Bool via (0.source) into discard})) fail(loc, \"iterator exhausted\"); auto index = rusk_enumerate_index(it, loc); auto value = @{boxed_call __iter_next__(I)->T via (0.source) into return.1}(it->source, loc); rusk_guard_iter(it, loc); return make_obj<@{Tuple<Int,T>}>({make_obj<@{Int}>(index), value}); }",
 }
 
 /// 現在の添字と走査元の進行状態をコピーします。
@@ -64,13 +66,15 @@ extern fn __iter__<I, J, A, B>(it: Zipped<I, J, A, B>) -> Zipped<I, J, A, B> {
 }
 
 extern fn __iter_has_next__<I, J, A, B>(it: Zipped<I, J, A, B>) -> Bool {
+    effects: "checked_cursor_step",
     depends: "__runtime_iter_adapters__",
-    code: "Obj<bool> @{fn}(Obj<@{Zipped<I,J,A,B>}> it, Loc loc) { return make_obj<bool>(rusk_zip_ready(it, loc, @{boxed_call __iter_has_next__(I)->Bool}, @{boxed_call __iter_has_next__(J)->Bool})); }",
+    code: "Obj<bool> @{fn}(Obj<@{Zipped<I,J,A,B>}> it, Loc loc) { return make_obj<bool>(rusk_zip_ready(it, loc, @{boxed_call __iter_has_next__(I)->Bool via (0.left) into discard}, @{boxed_call __iter_has_next__(J)->Bool via (0.right) into discard})); }",
 }
 
 extern fn __iter_next__<I, J, A, B>(it: Zipped<I, J, A, B>) -> (A, B) {
+    effects: "checked_cursor_step",
     depends: "__runtime_iter_adapters__",
-    code: "Obj<@{Tuple<A,B>}> @{fn}(Obj<@{Zipped<I,J,A,B>}> it, Loc loc) { if (!rusk_zip_ready(it, loc, @{boxed_call __iter_has_next__(I)->Bool}, @{boxed_call __iter_has_next__(J)->Bool})) fail(loc, \"iterator exhausted\"); auto left = @{boxed_call __iter_next__(I)->A}(it->left, loc); rusk_guard_iter(it, loc); auto right = @{boxed_call __iter_next__(J)->B}(it->right, loc); rusk_guard_iter(it, loc); it->ready = false; return make_obj<@{Tuple<A,B>}>({left, right}); }",
+    code: "Obj<@{Tuple<A,B>}> @{fn}(Obj<@{Zipped<I,J,A,B>}> it, Loc loc) { if (!rusk_zip_ready(it, loc, @{boxed_call __iter_has_next__(I)->Bool via (0.left) into discard}, @{boxed_call __iter_has_next__(J)->Bool via (0.right) into discard})) fail(loc, \"iterator exhausted\"); auto left = @{boxed_call __iter_next__(I)->A via (0.left) into return.0}(it->left, loc); rusk_guard_iter(it, loc); auto right = @{boxed_call __iter_next__(J)->B via (0.right) into return.1}(it->right, loc); rusk_guard_iter(it, loc); it->ready = false; return make_obj<@{Tuple<A,B>}>({left, right}); }",
 }
 
 /// 左右の進行状態をコピーします。
@@ -122,7 +126,7 @@ extern fn __iter_has_next__<T>(it: ReverseVecIter<T>) -> Bool {
 extern fn __iter_next__<T>(it: ReverseVecIter<T>) -> T {
     depends: "__runtime_iter_adapters__",
     return_abi: "object",
-    effects: "checked_mutate_fresh",
+    effects: "checked_cursor_step",
     aliases: "return=0.owner.element",
     code: "inline Obj<@{T}> @{fn}(Obj<@{ReverseVecIter<T>}> it, Loc loc) { return rusk_reverse_next(it, loc); }",
 }
@@ -168,7 +172,7 @@ extern fn __iter_has_next__(it: ReverseStrIter) -> Bool {
 
 extern fn __iter_next__(it: ReverseStrIter) -> Char {
     depends: "__runtime_iter_adapters__",
-    effects: "checked_mutate_fresh",
+    effects: "checked_cursor_step",
     aliases: "return=0.owner.element",
     cpp_name: "rusk_iter_next_reverse_str",
     code: "inline Obj<char> rusk_iter_next_reverse_str(Obj<RuskReverseStrIter> it, Loc loc) { return rusk_reverse_next(it, loc); }",
@@ -215,7 +219,7 @@ extern fn __iter_has_next__(it: ReverseRangeIter) -> Bool {
 
 extern fn __iter_next__(it: ReverseRangeIter) -> Int {
     depends: "__runtime_iter_adapters__",
-    effects: "checked_mutate_fresh",
+    effects: "checked_cursor_step",
     cpp_name: "rusk_iter_next_reverse_range",
     code: "inline Obj<std::int64_t> rusk_iter_next_reverse_range(Obj<RuskReverseRangeIter> it, Loc loc) { return make_obj<std::int64_t>(rusk_reverse_next(it, loc)); }",
 }

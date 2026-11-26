@@ -12,6 +12,9 @@ pub(crate) fn parse(text: &str, parameters: usize) -> Result<Vec<Mapping>, Strin
         let parts = text.split('.').collect::<Vec<_>>();
         if parts.len() > 16
             || parts.iter().any(|p| {
+                if !p.is_empty() && p.bytes().all(|c| c.is_ascii_digit()) {
+                    return false; // Tuple fields use numeric names.
+                }
                 let mut chars = p.chars();
                 !chars
                     .next()

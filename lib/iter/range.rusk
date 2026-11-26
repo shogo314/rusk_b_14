@@ -34,7 +34,7 @@ extern fn __iter_has_next__(it: RangeIter) -> Bool {
 }
 extern fn __iter_next__(it: RangeIter) -> Int {
     lower: "rusk_range_next($0, $loc)",
-    effects: "checked_mutate_fresh",
+    effects: "checked_cursor_step",
     cpp_name: "basic_function_3",
     code: "Obj<std::int64_t> basic_function_3(Obj<RuskRangeIter> it, [[maybe_unused]] Loc loc) { if(it->next>=it->end) fail(loc,\"iterator exhausted\"); auto value=it->next; ++it->next; return make_obj<std::int64_t>(value); }",
 }
