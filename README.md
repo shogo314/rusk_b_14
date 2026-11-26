@@ -1,6 +1,6 @@
 # Rusk
 
-Ruskは競技プログラミング向けの言語です。Rustで実装した処理系がRuskのソースを単一のC++20ソースへ変換します。作者自身の書きやすさと、競技プログラミングで十分な実行速度を目指しています。このリポジトリはβ13の開発版です。現在の仕様と制限は文書に、これから取り組む範囲は[作業計画](docs/development/plan.md)に記載しています。
+Ruskは競技プログラミング向けの言語です。Rustで実装した処理系がRuskのソースを単一のC++20ソースへ変換します。作者自身の書きやすさと、競技プログラミングで十分な実行速度を目指しています。このリポジトリはβ14の開発版です。現在の仕様と制限は文書に、これから取り組む範囲は[作業計画](docs/development/plan.md)に記載しています。
 
 ## 試す
 
@@ -36,7 +36,7 @@ wt total;
 
 ## ドキュメント
 
-- [公開サイト](https://shogo314.github.io/rusk_b_13/)／[ドキュメントの入口](docs/index.md)
+- [公開サイト](https://shogo314.github.io/rusk_b_14/)／[ドキュメントの入口](docs/index.md)
 - [チュートリアル](docs/getting-started/tutorial.md)／[型の一覧](docs/reference/types.md)／[演算子](docs/reference/operators.md)／[言語リファレンス](docs/reference/index.md)／[標準ライブラリ](docs/library/index.md)
 - [ソースの整形](docs/getting-started/formatting.md)／[文書コメント](docs/development/doc-comments.md)
 - [開発ガイド](docs/development/index.md)／[変換パイプライン](docs/development/pipeline.md)／[externの規則](docs/development/extern.md)

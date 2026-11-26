@@ -5,8 +5,8 @@ RuskはソースをC++20へ変換する処理系です。Rustのstableツール�
 ## リポジトリを用意する
 
 ```bash
-git clone https://github.com/shogo314/rusk_b_13.git
-cd rusk_b_13
+git clone https://github.com/shogo314/rusk_b_14.git
+cd rusk_b_14
 cargo build --release --locked
 ```
 
